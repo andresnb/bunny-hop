@@ -1,0 +1,757 @@
+<!doctype html><!--wrap-->
+<html lang="es"><!--wrap-->
+<head><!--wrap-->
+<meta charset="utf-8"><!--wrap-->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><!--wrap-->
+<title>Bunny Hop</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;700&family=Space+Mono:wght@400;700&display=swap">
+<style>
+/* Layout: one screen. Slim header, the stone matrix fills the middle, three thumb buttons at the bottom.
+   Look: strictly black and white, ink on night. White stones with black spirals float on a black void. */
+:root {
+  --ink: #000;
+  --paper: #fff;
+  --dim: #a6a6a6;
+  --rule: #4a4a4a;
+  --display: "Fredoka", "Trebuchet MS", system-ui, sans-serif;
+  --mono: "Space Mono", ui-monospace, Menlo, Consolas, monospace;
+  color-scheme: dark;
+  box-sizing: border-box;
+  padding: env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 0px);
+}
+*, *::before, *::after { box-sizing: inherit; }
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--display);
+  font-size: 16px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 12px;
+  overflow: hidden;
+  overscroll-behavior: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.app {
+  height: 100%;
+  max-width: 560px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+h1 {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  line-height: 1;
+}
+.levels {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.level-name {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  min-width: 9ch;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.hud {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--dim);
+  border-top: 1px solid var(--rule);
+  padding-top: 8px;
+  font-variant-numeric: tabular-nums;
+}
+.hud b { color: var(--paper); font-weight: 700; }
+.stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+}
+.tip {
+  margin: 0;
+  min-height: 2.6em;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.3;
+  text-align: center;
+  color: var(--dim);
+  text-wrap: balance;
+}
+.actions {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+button {
+  font: inherit;
+  font-weight: 500;
+  color: var(--paper);
+  background: var(--ink);
+  border: 2px solid var(--paper);
+  border-radius: 14px;
+  min-height: 48px;
+  padding: 0 12px;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+button:active:not(:disabled) { background: var(--paper); color: var(--ink); }
+button:disabled { border-color: var(--rule); color: var(--rule); cursor: default; }
+button:focus-visible { outline: 3px solid var(--paper); outline-offset: 3px; }
+.icon {
+  min-height: 40px;
+  width: 40px;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 20px;
+  line-height: 1;
+}
+.solid { background: var(--paper); color: var(--ink); font-weight: 700; }
+.solid:active:not(:disabled) { background: var(--ink); color: var(--paper); }
+.sheet {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.72);
+  padding: 12px;
+}
+.card {
+  width: min(100%, 340px);
+  max-height: 100%;
+  overflow: auto;
+  background: var(--ink);
+  border: 2px solid var(--paper);
+  border-radius: 20px;
+  padding: 22px 20px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  text-align: center;
+}
+.card h2 { margin: 0; font-size: 28px; font-weight: 700; line-height: 1.05; text-wrap: balance; }
+.card p { margin: 0; font-size: 15px; font-weight: 500; line-height: 1.4; color: var(--dim); }
+.card ul {
+  margin: 0;
+  padding: 0 0 0 1.1em;
+  text-align: left;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.4;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.card .row { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+</style>
+</head><!--wrap-->
+<body><!--wrap-->
+<div class="app">
+  <header class="top">
+    <h1>Bunny Hop</h1>
+    <div class="levels">
+      <button class="icon" id="prev" aria-label="Nivel anterior">&#8249;</button>
+      <span class="level-name" id="levelName">Nivel 1</span>
+      <button class="icon" id="next" aria-label="Nivel siguiente">&#8250;</button>
+      <button class="icon" id="help" aria-label="Cómo se juega">?</button>
+    </div>
+  </header>
+  <div class="hud">
+    <span>Saltos <b id="moves">0</b></span>
+    <span>Mínimo <b id="min">0</b></span>
+    <span>Mejor <b id="best">–</b></span>
+  </div>
+  <div class="stage" id="stage">
+    <canvas id="board" aria-label="Tablero de piedras"></canvas>
+    <div class="sheet" id="sheet" hidden>
+      <div class="card" id="card" role="dialog" aria-modal="true"></div>
+    </div>
+  </div>
+  <p class="tip" id="tip" aria-live="polite"></p>
+  <div class="actions">
+    <button id="undo">Deshacer</button>
+    <button id="reset">Reiniciar</button>
+    <button id="hint">Pista</button>
+  </div>
+</div>
+<script>
+(function () {
+'use strict';
+
+/*LOGIC-START*/
+// ---------- Rules and level generation (no DOM in this block) ----------
+
+function rng32(a) {
+  return function () {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    var t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+
+// Stones next to stone i (up, right, down, left). Holes are not stones.
+function neighbors(lv, i) {
+  var W = lv.w, H = lv.h, x = i % W, y = (i - x) / W, out = [];
+  if (y > 0 && lv.cells[i - W]) out.push(i - W);
+  if (x < W - 1 && lv.cells[i + 1]) out.push(i + 1);
+  if (y < H - 1 && lv.cells[i + W]) out.push(i + W);
+  if (x > 0 && lv.cells[i - 1]) out.push(i - 1);
+  return out;
+}
+
+// The pig hops one stone toward the bunny: sideways first, otherwise up or down.
+// If the stone it wants is a hole, it stays put.
+function pigStep(lv, pig, bun) {
+  var W = lv.w, px = pig % W, py = (pig - px) / W, bx = bun % W, by = (bun - bx) / W;
+  var dx = bx > px ? 1 : bx < px ? -1 : 0, dy = by > py ? 1 : by < py ? -1 : 0;
+  if (dx && lv.cells[pig + dx]) return pig + dx;
+  if (dy && lv.cells[pig + dy * W]) return pig + dy * W;
+  return pig;
+}
+
+// Shortest escape from a position, as the list of stones the bunny hops to. null if there is none.
+function solve(lv, bun, pig) {
+  var N = lv.w * lv.h, start = bun * N + pig;
+  var prev = new Int32Array(N * N).fill(-2), q = [start], head = 0;
+  prev[start] = -1;
+  while (head < q.length) {
+    var s = q[head++], p = s % N, b = (s - p) / N, ns = neighbors(lv, b);
+    for (var k = 0; k < ns.length; k++) {
+      var n = ns[k];
+      if (n === p) continue;
+      if (n === lv.exit) {
+        var path = [n], c = s;
+        while (c !== start) { path.push((c - c % N) / N); c = prev[c]; }
+        return path.reverse();
+      }
+      var p2 = pigStep(lv, p, n);
+      if (p2 === n) continue;
+      var t = n * N + p2;
+      if (prev[t] !== -2) continue;
+      prev[t] = s; q.push(t);
+    }
+  }
+  return null;
+}
+
+// Hop distance between two stones with no pig around. -1 if unreachable.
+function distances(lv, from) {
+  var d = new Int16Array(lv.w * lv.h).fill(-1), q = [from], head = 0;
+  d[from] = 0;
+  while (head < q.length) {
+    var c = q[head++], ns = neighbors(lv, c);
+    for (var k = 0; k < ns.length; k++) if (d[ns[k]] < 0) { d[ns[k]] = d[c] + 1; q.push(ns[k]); }
+  }
+  return d;
+}
+
+// How big and how tricky level n is. "detour" is how many extra hops the pig forces.
+function specFor(n) {
+  if (n <= 2) return { w: 4, h: 5, lo: 0, hi: 0, holes: 0.14 };
+  if (n <= 5) return { w: 5, h: 6, lo: 2, hi: 2, holes: 0.2 };
+  if (n <= 9) return { w: 5, h: 7, lo: 4, hi: 4, holes: 0.22 };
+  if (n <= 14) return { w: 6, h: 7, lo: 6, hi: 6, holes: 0.24 };
+  if (n <= 20) return { w: 6, h: 8, lo: 8, hi: 10, holes: 0.25 };
+  return { w: 6, h: 8, lo: 10, hi: 99, holes: 0.26 };
+}
+
+function candidate(n, spec, seed) {
+  var r = rng32(seed), W = spec.w, H = spec.h, N = W * H, i;
+  var lv = { n: n, w: W, h: H, cells: new Uint8Array(N), start: 0, exit: 0, pig: 0, min: 0 };
+  for (i = 0; i < N; i++) lv.cells[i] = r() < spec.holes ? 0 : 1;
+  var bottoms = [], tops = [];
+  for (i = 0; i < W; i++) {
+    if (lv.cells[i]) tops.push(i);
+    if (lv.cells[N - W + i]) bottoms.push(N - W + i);
+  }
+  if (!tops.length || !bottoms.length) return null;
+  lv.start = bottoms[(r() * bottoms.length) | 0];
+  lv.exit = tops[(r() * tops.length) | 0];
+  var d = distances(lv, lv.start), count = 0, pigs = [];
+  for (i = 0; i < N; i++) {
+    if (d[i] < 0) { lv.cells[i] = 0; continue; }
+    count++;
+    if (i < 2 * W && i !== lv.exit) pigs.push(i);
+  }
+  if (d[lv.exit] < 0 || !pigs.length || count < N * 0.6) return null;
+  lv.pig = pigs[(r() * pigs.length) | 0];
+  var path = solve(lv, lv.start, lv.pig);
+  if (!path) return null;
+  lv.min = path.length;
+  lv.detour = path.length - d[lv.exit];
+  return lv;
+}
+
+// Level n is always the same board: the first candidate that fits the level's spec.
+function makeLevel(n) {
+  var spec = specFor(n), fallback = null;
+  for (var a = 0; a < 6000; a++) {
+    var lv = candidate(n, spec, n * 7919 + a * 104729);
+    if (!lv) continue;
+    if (lv.detour >= spec.lo && lv.detour <= spec.hi) return lv;
+    if (!fallback || Math.abs(lv.detour - spec.lo) < Math.abs(fallback.detour - spec.lo)) fallback = lv;
+  }
+  return fallback;
+}
+/*LOGIC-END*/
+
+// ---------- Game state ----------
+
+var $ = function (id) { return document.getElementById(id); };
+var canvas = $('board'), ctx = canvas.getContext('2d'), stage = $('stage');
+var sheet = $('sheet'), card = $('card'), tip = $('tip');
+var reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+var KEY = 'bunnyhop.v1';
+
+var store = { max: 1, cur: 1, best: {} };
+try {
+  var raw = JSON.parse(localStorage.getItem(KEY) || 'null');
+  if (raw && raw.max >= 1) store = { max: raw.max | 0, cur: raw.cur | 0 || 1, best: raw.best || {} };
+} catch (e) {}
+function save() { try { localStorage.setItem(KEY, JSON.stringify(store)); } catch (e) {} }
+
+var cache = {};
+function level(n) { return cache[n] || (cache[n] = makeLevel(n)); }
+
+var G = { n: 1, lv: null, bun: 0, pig: 0, moves: 0, hist: [], status: 'play', hint: -1 };
+var A = { bun: { x: 0, y: 0, lift: 0, show: true }, pig: { x: 0, y: 0, lift: 0, show: true, shake: 0 } };
+var shapes = [], busy = false;
+
+function colOf(i) { return i % G.lv.w; }
+function rowOf(i) { return (i - i % G.lv.w) / G.lv.w; }
+
+function place() {
+  tweens.length = 0; busy = false;
+  A.bun.x = colOf(G.bun); A.bun.y = rowOf(G.bun); A.bun.lift = 0; A.bun.show = true;
+  A.pig.x = colOf(G.pig); A.pig.y = rowOf(G.pig); A.pig.lift = 0; A.pig.shake = 0;
+}
+
+function loadLevel(n, saved) {
+  G.n = n; G.lv = level(n);
+  G.bun = G.lv.start; G.pig = G.lv.pig; G.moves = 0; G.hist = []; G.status = 'play'; G.hint = -1;
+  if (saved && saved.n === n && G.lv.cells[saved.bun] && G.lv.cells[saved.pig]) {
+    G.bun = saved.bun; G.pig = saved.pig; G.moves = saved.moves | 0; G.hist = saved.hist || [];
+  }
+  var r = rng32(n * 2654435761), N = G.lv.w * G.lv.h;
+  shapes = [];
+  for (var i = 0; i < N; i++) {
+    var rad = [];
+    for (var j = 0; j < 9; j++) rad.push(0.93 + r() * 0.14);
+    shapes.push({ rad: rad, rot: r() * 6.283, spin: r() * 6.283, dir: r() < 0.5 ? -1 : 1, turns: 2.3 + r() * 0.7 });
+  }
+  store.cur = n; save();
+  sheet.hidden = true;
+  place(); layout(); hud();
+  say(n === 1 ? 'Toca una piedra vecina o desliza para saltar. Llega a la piedra negra.'
+    : n === 3 ? 'Ahora el camino corto no alcanza. Deja al chanchito atascado detrás de un hueco.'
+    : '');
+  draw();
+}
+
+function say(text) { tip.textContent = text; }
+
+function hud() {
+  $('levelName').textContent = 'Nivel ' + G.n;
+  $('moves').textContent = G.moves;
+  $('min').textContent = G.lv.min;
+  $('best').textContent = store.best[G.n] || '–';
+  $('prev').disabled = G.n <= 1;
+  $('next').disabled = G.n >= store.max;
+  $('undo').disabled = !G.hist.length;
+}
+
+// ---------- Turns ----------
+
+function tryMove(to) {
+  if (G.status !== 'play' || busy) return;
+  if (to === G.pig || neighbors(G.lv, G.bun).indexOf(to) < 0) return;
+  G.hist.push([G.bun, G.pig]);
+  G.bun = to; G.moves++; G.hint = -1; busy = true;
+  say(''); hud();
+  hop(A.bun, colOf(to), rowOf(to), 150, function () {
+    if (to === G.lv.exit) return win();
+    pigTurn();
+  });
+}
+
+function pigTurn() {
+  var p2 = pigStep(G.lv, G.pig, G.bun);
+  if (p2 === G.pig) {
+    A.pig.shake = performance.now(); kick(320);
+    say('El chanchito se quedó atascado.');
+    return endTurn();
+  }
+  G.pig = p2;
+  hop(A.pig, colOf(p2), rowOf(p2), 150, function () {
+    if (p2 === G.bun) return lose('Cayó en tu piedra.');
+    endTurn();
+  });
+}
+
+function endTurn() {
+  var free = neighbors(G.lv, G.bun).filter(function (n) { return n !== G.pig; });
+  if (!free.length) {
+    G.pig = G.bun;
+    return hop(A.pig, colOf(G.bun), rowOf(G.bun), 150, function () { lose('Te acorraló sin salida.'); });
+  }
+  busy = false; draw();
+}
+
+function win() {
+  G.status = 'won';
+  var perfect = G.moves <= G.lv.min, old = store.best[G.n];
+  if (!old || G.moves < old) store.best[G.n] = G.moves;
+  if (store.max < G.n + 1) store.max = G.n + 1;
+  save(); hud();
+  hop(A.bun, colOf(G.bun), -1.6, 260, function () {
+    A.bun.show = false; busy = false; draw();
+    show(perfect ? '¡Ruta perfecta!' : '¡Escapaste!',
+      perfect ? 'Saliste en ' + G.moves + ' saltos, el mínimo posible.'
+        : 'Saliste en ' + G.moves + ' saltos. El mínimo es ' + G.lv.min + '.',
+      perfect ? [['Siguiente nivel', function () { loadLevel(G.n + 1); }, true]]
+        : [['Siguiente nivel', function () { loadLevel(G.n + 1); }, true], ['Buscar el mínimo', function () { loadLevel(G.n); }]]);
+  });
+}
+
+function lose(why) {
+  G.status = 'lost'; A.bun.show = false; busy = false; hud(); draw();
+  show('¡Te atrapó!', why + ' Deshaz el último salto o empieza de nuevo.',
+    [['Deshacer', undo, true], ['Reiniciar nivel', function () { loadLevel(G.n); }]]);
+}
+
+function undo() {
+  if (busy || !G.hist.length) return;
+  var h = G.hist.pop();
+  G.bun = h[0]; G.pig = h[1]; G.moves--; G.status = 'play'; G.hint = -1;
+  sheet.hidden = true; say('');
+  place(); hud(); draw();
+}
+
+function hint() {
+  if (G.status !== 'play' || busy) return;
+  var path = solve(G.lv, G.bun, G.pig);
+  if (!path) { say('Desde aquí ya no hay salida. Deshaz un salto o reinicia.'); return; }
+  G.hint = path[0];
+  say('Salta a la piedra marcada.');
+  kick();
+}
+
+// ---------- Sheets ----------
+
+function show(title, text, buttons) {
+  card.textContent = '';
+  var h = document.createElement('h2'); h.textContent = title; card.appendChild(h);
+  if (typeof text === 'string') { var p = document.createElement('p'); p.textContent = text; card.appendChild(p); }
+  else card.appendChild(text);
+  var row = document.createElement('div'); row.className = 'row';
+  buttons.forEach(function (b) {
+    var el = document.createElement('button');
+    el.textContent = b[0]; if (b[2]) el.className = 'solid';
+    el.addEventListener('click', function () { sheet.hidden = true; b[1](); });
+    row.appendChild(el);
+  });
+  card.appendChild(row);
+  sheet.hidden = false;
+  var first = row.querySelector('button'); if (first) first.focus({ preventScroll: true });
+}
+
+function showHelp() {
+  var ul = document.createElement('ul');
+  ['Eres el conejito. Salta de piedra en piedra hasta la piedra negra, que es la salida.',
+   'Por cada salto tuyo, el chanchito da uno hacia ti.',
+   'El chanchito primero intenta ir de lado. Si no puede, sube o baja. Si le toca un hueco, se queda atascado.',
+   'Si cae en tu piedra, te atrapa.'].forEach(function (t) {
+    var li = document.createElement('li'); li.textContent = t; ul.appendChild(li);
+  });
+  show('Cómo se juega', ul, [['Jugar', function () {}, true]]);
+}
+
+// ---------- Animation ----------
+
+var tweens = [], raf = 0, activeUntil = 0;
+
+function kick(ms) {
+  activeUntil = Math.max(activeUntil, performance.now() + (ms || 0));
+  if (!raf) raf = requestAnimationFrame(frame);
+}
+
+function frame(now) {
+  raf = 0;
+  for (var i = tweens.length - 1; i >= 0; i--) {
+    var tw = tweens[i], t = Math.max(0, Math.min(1, (now - tw.t0) / tw.dur));
+    tw.step(t);
+    if (t >= 1) { tweens.splice(i, 1); if (tw.done) tw.done(); }
+  }
+  draw(now);
+  if (tweens.length || now < activeUntil || (G.hint >= 0 && !reduced)) raf = requestAnimationFrame(frame);
+}
+
+function hop(actor, toX, toY, dur, done) {
+  var fx = actor.x, fy = actor.y;
+  if (reduced) { actor.x = toX; actor.y = toY; actor.lift = 0; draw(); if (done) done(); return; }
+  tweens.push({
+    t0: performance.now(), dur: dur, done: done,
+    step: function (t) {
+      actor.x = fx + (toX - fx) * t; actor.y = fy + (toY - fy) * t; actor.lift = Math.sin(Math.PI * t);
+    }
+  });
+  kick();
+}
+
+// ---------- Drawing ----------
+
+var cell = 40, ox = 0, oy = 0, vw = 0, vh = 0;
+
+function layout() {
+  var dpr = Math.min(window.devicePixelRatio || 1, 3);
+  vw = stage.clientWidth; vh = stage.clientHeight;
+  if (!vw || !vh || !G.lv) return;
+  if (canvas.width !== Math.round(vw * dpr) || canvas.height !== Math.round(vh * dpr)) {
+    canvas.width = Math.round(vw * dpr); canvas.height = Math.round(vh * dpr);
+  }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  cell = Math.min(vw / (G.lv.w + 0.2), vh / (G.lv.h + 1.5), 104);
+  ox = (vw - cell * G.lv.w) / 2;
+  oy = (vh - cell * G.lv.h) / 2;
+}
+function px(x) { return ox + (x + 0.5) * cell; }
+function py(y) { return oy + (y + 0.5) * cell; }
+
+function blob(x, y, R, sh) {
+  var k = sh.rad.length, pts = [], j;
+  for (j = 0; j < k; j++) {
+    var a = sh.rot + j / k * 6.2832, rr = R * sh.rad[j];
+    pts.push([x + Math.cos(a) * rr, y + Math.sin(a) * rr]);
+  }
+  ctx.beginPath();
+  ctx.moveTo((pts[k - 1][0] + pts[0][0]) / 2, (pts[k - 1][1] + pts[0][1]) / 2);
+  for (j = 0; j < k; j++) {
+    var n = pts[(j + 1) % k];
+    ctx.quadraticCurveTo(pts[j][0], pts[j][1], (pts[j][0] + n[0]) / 2, (pts[j][1] + n[1]) / 2);
+  }
+  ctx.closePath();
+}
+
+function spiral(x, y, R, sh) {
+  ctx.beginPath();
+  for (var s = 0; s <= 80; s++) {
+    var t = s / 80, a = sh.spin + sh.dir * t * sh.turns * 6.2832, r = R * 0.66 * t;
+    if (s) ctx.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r);
+    else ctx.moveTo(x, y);
+  }
+  ctx.stroke();
+}
+
+function arrowUp(x, y, s) {
+  ctx.beginPath();
+  ctx.moveTo(x, y - s); ctx.lineTo(x + s * 0.8, y); ctx.lineTo(x - s * 0.8, y);
+  ctx.closePath(); ctx.fill();
+}
+
+function drawBunny(x, y, s) {
+  ctx.save(); ctx.translate(x, y);
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  ctx.strokeStyle = '#000'; ctx.fillStyle = '#fff';
+  [-1, 1].forEach(function (d) {
+    ctx.save(); ctx.translate(d * s * 0.1, -s * 0.15); ctx.rotate(d * 0.2);
+    ctx.lineWidth = s * 0.04;
+    ctx.beginPath(); ctx.ellipse(0, -s * 0.18, s * 0.068, s * 0.2, 0, 0, 6.2832); ctx.fill(); ctx.stroke();
+    ctx.lineWidth = s * 0.028;
+    ctx.beginPath(); ctx.moveTo(0, -s * 0.28); ctx.lineTo(0, -s * 0.12); ctx.stroke();
+    ctx.restore();
+  });
+  ctx.lineWidth = s * 0.04;
+  ctx.beginPath(); ctx.ellipse(0, s * 0.04, s * 0.25, s * 0.215, 0, 0, 6.2832); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#000';
+  ctx.beginPath(); ctx.arc(-s * 0.1, s * 0.0, s * 0.033, 0, 6.2832); ctx.fill();
+  ctx.beginPath(); ctx.arc(s * 0.1, s * 0.0, s * 0.033, 0, 6.2832); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(0, s * 0.075, s * 0.028, s * 0.02, 0, 0, 6.2832); ctx.fill();
+  ctx.lineWidth = s * 0.022;
+  ctx.beginPath();
+  ctx.moveTo(-s * 0.05, s * 0.13); ctx.quadraticCurveTo(-s * 0.02, s * 0.155, 0, s * 0.1);
+  ctx.quadraticCurveTo(s * 0.02, s * 0.155, s * 0.05, s * 0.13);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawPig(x, y, s) {
+  ctx.save(); ctx.translate(x, y);
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  ctx.fillStyle = '#000'; ctx.strokeStyle = '#fff'; ctx.lineWidth = s * 0.035;
+  [-1, 1].forEach(function (d) {
+    ctx.beginPath();
+    ctx.moveTo(d * s * 0.1, -s * 0.22); ctx.lineTo(d * s * 0.31, -s * 0.35); ctx.lineTo(d * s * 0.27, -s * 0.08);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+  });
+  ctx.beginPath(); ctx.arc(0, 0, s * 0.285, 0, 6.2832); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#fff';
+  ctx.beginPath(); ctx.ellipse(0, s * 0.09, s * 0.125, s * 0.085, 0, 0, 6.2832); ctx.fill();
+  ctx.beginPath(); ctx.arc(-s * 0.115, -s * 0.07, s * 0.034, 0, 6.2832); ctx.fill();
+  ctx.beginPath(); ctx.arc(s * 0.115, -s * 0.07, s * 0.034, 0, 6.2832); ctx.fill();
+  ctx.lineWidth = s * 0.03;
+  ctx.beginPath(); ctx.moveTo(-s * 0.19, -s * 0.17); ctx.lineTo(-s * 0.06, -s * 0.115); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(s * 0.19, -s * 0.17); ctx.lineTo(s * 0.06, -s * 0.115); ctx.stroke();
+  ctx.fillStyle = '#000';
+  ctx.beginPath(); ctx.ellipse(-s * 0.045, s * 0.09, s * 0.02, s * 0.032, 0, 0, 6.2832); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(s * 0.045, s * 0.09, s * 0.02, s * 0.032, 0, 0, 6.2832); ctx.fill();
+  ctx.restore();
+}
+
+function actor(a, fn) {
+  var s = cell * (1 + 0.14 * a.lift);
+  fn(px(a.x), py(a.y) - a.lift * cell * 0.3, s);
+}
+
+function draw(now) {
+  if (!G.lv || !vw) return;
+  now = now || performance.now();
+  var lv = G.lv, N = lv.w * lv.h, R = cell * 0.44, i, x, y;
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, vw, vh);
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+
+  for (i = 0; i < N; i++) {
+    x = px(i % lv.w); y = py((i - i % lv.w) / lv.w);
+    if (!lv.cells[i]) {
+      ctx.fillStyle = '#4a4a4a';
+      ctx.beginPath(); ctx.arc(x, y, Math.max(1.2, cell * 0.028), 0, 6.2832); ctx.fill();
+      continue;
+    }
+    var exit = i === lv.exit;
+    blob(x, y, R, shapes[i]);
+    ctx.fillStyle = exit ? '#000' : '#fff'; ctx.fill();
+    if (exit) { ctx.strokeStyle = '#fff'; ctx.lineWidth = cell * 0.05; ctx.stroke(); }
+    ctx.strokeStyle = exit ? '#fff' : '#000'; ctx.lineWidth = cell * 0.052;
+    spiral(x, y, R, shapes[i]);
+  }
+
+  // Way in and way out, marked outside the matrix.
+  var fs = Math.max(10, Math.min(14, cell * 0.2));
+  ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = '700 ' + fs + 'px "Space Mono", ui-monospace, monospace';
+  x = px(lv.exit % lv.w);
+  arrowUp(x, oy - cell * 0.42, cell * 0.11);
+  ctx.fillText('SALIDA', x, oy - cell * 0.22);
+  x = px(lv.start % lv.w);
+  arrowUp(x, oy + cell * lv.h + cell * 0.2, cell * 0.11);
+  ctx.fillText('ENTRADA', x, oy + cell * lv.h + cell * 0.42);
+
+  if (G.hint >= 0 && G.status === 'play') {
+    var pulse = reduced ? 0.5 : 0.5 + 0.5 * Math.sin(now / 180);
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(2, cell * 0.045);
+    ctx.setLineDash([cell * 0.12, cell * 0.1]);
+    ctx.beginPath();
+    ctx.arc(px(G.hint % lv.w), py((G.hint - G.hint % lv.w) / lv.w), cell * (0.5 + 0.035 * pulse), 0, 6.2832);
+    ctx.stroke(); ctx.setLineDash([]);
+  }
+
+  var shake = 0, since = now - A.pig.shake;
+  if (A.pig.shake && since < 320) shake = Math.sin(since / 320 * Math.PI * 6) * cell * 0.05 * (1 - since / 320);
+  ctx.save(); ctx.translate(shake, 0); actor(A.pig, drawPig); ctx.restore();
+  if (A.bun.show) actor(A.bun, drawBunny);
+}
+
+// ---------- Input ----------
+
+function step(dx, dy) {
+  if (!G.lv) return;
+  var x = colOf(G.bun) + dx, y = rowOf(G.bun) + dy;
+  if (x < 0 || y < 0 || x >= G.lv.w || y >= G.lv.h) return;
+  tryMove(y * G.lv.w + x);
+}
+
+var down = null;
+canvas.addEventListener('pointerdown', function (e) { down = { x: e.clientX, y: e.clientY }; });
+canvas.addEventListener('pointercancel', function () { down = null; });
+canvas.addEventListener('pointerup', function (e) {
+  if (!down) return;
+  var dx = e.clientX - down.x, dy = e.clientY - down.y; down = null;
+  if (Math.hypot(dx, dy) >= 24) {
+    if (Math.abs(dx) > Math.abs(dy)) step(dx > 0 ? 1 : -1, 0); else step(0, dy > 0 ? 1 : -1);
+    return;
+  }
+  var box = canvas.getBoundingClientRect();
+  var cx = Math.floor((e.clientX - box.left - ox) / cell), cy = Math.floor((e.clientY - box.top - oy) / cell);
+  if (cx < 0 || cy < 0 || cx >= G.lv.w || cy >= G.lv.h) return;
+  tryMove(cy * G.lv.w + cx);
+});
+
+window.addEventListener('keydown', function (e) {
+  if (!sheet.hidden) return;
+  var k = e.key.toLowerCase();
+  if (k === 'arrowup' || k === 'w') step(0, -1);
+  else if (k === 'arrowdown' || k === 's') step(0, 1);
+  else if (k === 'arrowleft' || k === 'a') step(-1, 0);
+  else if (k === 'arrowright' || k === 'd') step(1, 0);
+  else if (k === 'z') undo();
+  else if (k === 'r') loadLevel(G.n);
+  else return;
+  e.preventDefault();
+});
+
+$('prev').addEventListener('click', function () { if (G.n > 1) loadLevel(G.n - 1); });
+$('next').addEventListener('click', function () { if (G.n < store.max) loadLevel(G.n + 1); });
+$('help').addEventListener('click', showHelp);
+$('undo').addEventListener('click', undo);
+$('reset').addEventListener('click', function () { loadLevel(G.n); });
+$('hint').addEventListener('click', hint);
+
+if (window.ResizeObserver) new ResizeObserver(function () { layout(); draw(); }).observe(stage);
+else window.addEventListener('resize', function () { layout(); draw(); });
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { draw(); });
+
+// ---------- Boot ----------
+
+function start(data) {
+  document.documentElement.lang = 'es';
+  var n = data && data.n ? data.n : Math.min(Math.max(store.cur, 1), store.max);
+  loadLevel(n, data);
+}
+var hot = window.claude && window.claude.hot;
+if (hot && hot.snapshot) {
+  hot.snapshot(function () {
+    var won = G.status === 'won', h = G.hist.slice(), bun = G.bun, pig = G.pig, moves = G.moves;
+    if (G.status === 'lost' && h.length) { var last = h.pop(); bun = last[0]; pig = last[1]; moves--; }
+    return won ? { n: G.n + 1 } : { n: G.n, bun: bun, pig: pig, moves: moves, hist: h };
+  });
+}
+if (hot && hot.ready) hot.ready(start); else start((hot && hot.data) || {});
+})();
+</script>
+</body><!--wrap-->
+</html><!--wrap-->
