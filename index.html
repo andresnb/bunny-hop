@@ -4,6 +4,15 @@
 <meta charset="utf-8"><!--wrap-->
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><!--wrap-->
 <title>Bunny Hop</title>
+<meta name="description" content="Ayuda al conejito a escapar del chanchito, piedra por piedra."><!--wrap-->
+<meta name="theme-color" content="#000000"><!--wrap-->
+<link rel="icon" type="image/svg+xml" href="favicon.svg"><!--wrap-->
+<link rel="icon" type="image/png" sizes="64x64" href="favicon.png"><!--wrap-->
+<link rel="apple-touch-icon" href="icon-180.png"><!--wrap-->
+<meta property="og:type" content="website"><!--wrap-->
+<meta property="og:title" content="Bunny Hop"><!--wrap-->
+<meta property="og:description" content="Ayuda al conejito a escapar del chanchito, piedra por piedra."><!--wrap-->
+<meta property="og:image" content="https://andresnb.github.io/bunny-hop/og.png"><!--wrap-->
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;700&family=Space+Mono:wght@400;700&display=swap">
 <style>
@@ -237,6 +246,8 @@ button:focus-visible { outline: 3px solid var(--paper); outline-offset: 3px; }
 
 /*LOGIC-START*/
 // ---------- Rules and level generation (no DOM in this block) ----------
+// A position is three stones: bunny, pig, panda. "No pig" and "no panda" are both written as
+// w * h, one past the last stone.
 
 function rng32(a) {
   return function () {
@@ -267,24 +278,64 @@ function pigStep(lv, pig, bun) {
   return pig;
 }
 
+// The panda is smarter: it hops one stone along the shortest way around the holes to the pig.
+function pandaStep(lv, pan, pig) {
+  var d = lv.dist[pig], ns = neighbors(lv, pan), best = pan, bd = d[pan];
+  for (var k = 0; k < ns.length; k++) if (d[ns[k]] < bd) { bd = d[ns[k]]; best = ns[k]; }
+  return best;
+}
+
+// Everything that happens after the bunny hops to "to". The game animates this result and the
+// solver searches with it, so both always agree on the rules.
+//   pigDied: 1 the pig hopped onto the panda, 2 the panda caught it, 3 the panda landed on it.
+function turn(lv, bun, pig, pan, to) {
+  var N = lv.w * lv.h;
+  var r = { pig: pig, pan: pan, lost: false, called: false, stuck: false, pigTo: -1, panTo: -1, pigDied: 0 };
+  if (to === lv.exit) return r;
+  if (to === lv.mega && pan === N && pig !== N) {
+    r.called = true; r.pan = pan = lv.start;
+    if (pig === pan) { r.pig = pig = N; r.pigDied = 3; }
+  }
+  if (pig !== N) {
+    var p2 = pigStep(lv, pig, to);
+    if (p2 === pig) r.stuck = true;
+    else {
+      r.pigTo = p2;
+      if (p2 === pan) { r.pig = pig = N; r.pigDied = 1; }
+      else if (p2 === to) { r.lost = true; r.pig = p2; return r; }
+      else r.pig = pig = p2;
+    }
+  }
+  if (pig !== N && pan !== N) {
+    var q = pandaStep(lv, pan, pig);
+    if (q !== pan) { r.panTo = q; r.pan = pan = q; }
+    if (pan === pig) { r.pig = N; r.pigDied = 2; }
+  }
+  return r;
+}
+
 // Shortest escape from a position, as the list of stones the bunny hops to. null if there is none.
-function solve(lv, bun, pig) {
-  var N = lv.w * lv.h, start = bun * N + pig;
-  var prev = new Int32Array(N * N).fill(-2), q = [start], head = 0;
+// With mustCall, only escapes that call the panda first count.
+function solve(lv, bun, pig, pan, mustCall) {
+  var N = lv.w * lv.h, M = N + 1;
+  if (pan === undefined || pig === N) pan = N;
+  var start = (bun * M + pig) * M + pan;
+  var prev = new Int32Array(N * M * M).fill(-2), q = [start], head = 0;
   prev[start] = -1;
   while (head < q.length) {
-    var s = q[head++], p = s % N, b = (s - p) / N, ns = neighbors(lv, b);
+    var s = q[head++], a = s % M, rest = (s - a) / M, p = rest % M, b = (rest - p) / M, ns = neighbors(lv, b);
     for (var k = 0; k < ns.length; k++) {
       var n = ns[k];
       if (n === p) continue;
       if (n === lv.exit) {
+        if (mustCall && a === N && p !== N) continue;
         var path = [n], c = s;
-        while (c !== start) { path.push((c - c % N) / N); c = prev[c]; }
+        while (c !== start) { path.push(Math.floor(c / (M * M))); c = prev[c]; }
         return path.reverse();
       }
-      var p2 = pigStep(lv, p, n);
-      if (p2 === n) continue;
-      var t = n * N + p2;
+      var r = turn(lv, b, p, a, n);
+      if (r.lost) continue;
+      var t = (n * M + r.pig) * M + (r.pig === N ? N : r.pan);
       if (prev[t] !== -2) continue;
       prev[t] = s; q.push(t);
     }
@@ -292,7 +343,7 @@ function solve(lv, bun, pig) {
   return null;
 }
 
-// Hop distance between two stones with no pig around. -1 if unreachable.
+// Hop distance from one stone to every other with nobody in the way. -1 if unreachable.
 function distances(lv, from) {
   var d = new Int16Array(lv.w * lv.h).fill(-1), q = [from], head = 0;
   d[from] = 0;
@@ -315,7 +366,7 @@ function specFor(n) {
 
 function candidate(n, spec, seed) {
   var r = rng32(seed), W = spec.w, H = spec.h, N = W * H, i;
-  var lv = { n: n, w: W, h: H, cells: new Uint8Array(N), start: 0, exit: 0, pig: 0, min: 0 };
+  var lv = { n: n, w: W, h: H, cells: new Uint8Array(N), start: 0, exit: 0, pig: 0, mega: -1, min: 0 };
   for (i = 0; i < N; i++) lv.cells[i] = r() < spec.holes ? 0 : 1;
   var bottoms = [], tops = [];
   for (i = 0; i < W; i++) {
@@ -335,20 +386,53 @@ function candidate(n, spec, seed) {
   lv.pig = pigs[(r() * pigs.length) | 0];
   var path = solve(lv, lv.start, lv.pig);
   if (!path) return null;
-  lv.min = path.length;
+  lv.min = lv.direct = path.length;
+  lv.path = path;
   lv.detour = path.length - d[lv.exit];
   return lv;
 }
 
+// Puts the panda megaphone on a stone where calling the panda is a real second way out:
+// off the direct escape, reachable alive, and about as long as slipping past the pig.
+function addMega(lv, r) {
+  var N = lv.w * lv.h, i, cands = [], best = -1, bestLen = 0, bestGap = 1e9;
+  lv.dist = [];
+  for (i = 0; i < N; i++) lv.dist.push(lv.cells[i] ? distances(lv, i) : null);
+  var d0 = lv.dist[lv.start];
+  for (i = 0; i < N; i++) {
+    if (lv.cells[i] && i !== lv.start && i !== lv.exit && i !== lv.pig && d0[i] >= 3 && lv.path.indexOf(i) < 0) cands.push(i);
+  }
+  for (i = cands.length - 1; i > 0; i--) {
+    var j = (r() * (i + 1)) | 0, tmp = cands[i]; cands[i] = cands[j]; cands[j] = tmp;
+  }
+  for (i = 0; i < cands.length && i < 10; i++) {
+    lv.mega = cands[i];
+    var path = solve(lv, lv.start, lv.pig, N, true);
+    if (!path) continue;
+    var gap = Math.abs(path.length - lv.direct);
+    if (gap < bestGap) { bestGap = gap; best = cands[i]; bestLen = path.length; }
+  }
+  lv.mega = best;
+  if (best < 0) return false;
+  lv.via = bestLen;
+  lv.min = Math.min(lv.direct, bestLen);
+  return true;
+}
+
 // Level n is always the same board: the first candidate that fits the level's spec.
+// From level 10 on, every board also carries a megaphone.
 function makeLevel(n) {
   var spec = specFor(n), fallback = null;
   for (var a = 0; a < 6000; a++) {
     var lv = candidate(n, spec, n * 7919 + a * 104729);
     if (!lv) continue;
-    if (lv.detour >= spec.lo && lv.detour <= spec.hi) return lv;
+    if (lv.detour >= spec.lo && lv.detour <= spec.hi) {
+      if (n < 10 || addMega(lv, rng32(n * 31337 + a))) return lv;
+      continue;
+    }
     if (!fallback || Math.abs(lv.detour - spec.lo) < Math.abs(fallback.detour - spec.lo)) fallback = lv;
   }
+  if (fallback && n >= 10) addMega(fallback, rng32(n * 31337));
   return fallback;
 }
 /*LOGIC-END*/
@@ -371,10 +455,11 @@ function save() { try { localStorage.setItem(KEY, JSON.stringify(store)); } catc
 var cache = {};
 function level(n) { return cache[n] || (cache[n] = makeLevel(n)); }
 
-var G = { n: 1, lv: null, bun: 0, pig: 0, moves: 0, hist: [], status: 'play', hint: -1 };
+var G = { n: 1, lv: null, bun: 0, pig: 0, pan: 0, moves: 0, hist: [], status: 'play', hint: -1, callT: 0 };
 var A = {
   bun: { x: 0, y: 0, lift: 0, show: true, face: 1, land: 0 },
-  pig: { x: 0, y: 0, lift: 0, show: true, face: -1, land: 0, shake: 0 }
+  pig: { x: 0, y: 0, lift: 0, face: -1, land: 0, shake: 0, die: 0 },
+  pan: { x: 0, y: 0, lift: 0, show: false, face: 1, land: 0 }
 };
 var shapes = [], busy = false;
 
@@ -382,18 +467,25 @@ function colOf(i) { return i % G.lv.w; }
 function rowOf(i) { return (i - i % G.lv.w) / G.lv.w; }
 
 function place() {
+  var N = G.lv.w * G.lv.h;
   tweens.length = 0; busy = false;
   A.bun.x = colOf(G.bun); A.bun.y = rowOf(G.bun); A.bun.lift = 0; A.bun.show = true;
-  A.pig.x = colOf(G.pig); A.pig.y = rowOf(G.pig); A.pig.lift = 0; A.pig.shake = 0;
-  A.bun.land = A.pig.land = 0;
-  if (A.pig.x !== A.bun.x) { A.pig.face = A.bun.x > A.pig.x ? 1 : -1; A.bun.face = -A.pig.face; }
+  A.pig.lift = 0; A.pig.shake = 0; A.pig.die = G.pig === N ? 1 : 0;
+  if (G.pig !== N) { A.pig.x = colOf(G.pig); A.pig.y = rowOf(G.pig); }
+  A.pan.show = G.pan !== N; A.pan.lift = 0;
+  if (A.pan.show) { A.pan.x = colOf(G.pan); A.pan.y = rowOf(G.pan); }
+  A.bun.land = A.pig.land = A.pan.land = 0; G.callT = 0;
+  if (G.pig !== N && A.pig.x !== A.bun.x) { A.pig.face = A.bun.x > A.pig.x ? 1 : -1; A.bun.face = -A.pig.face; }
+
 }
 
 function loadLevel(n, saved) {
   G.n = n; G.lv = level(n);
-  G.bun = G.lv.start; G.pig = G.lv.pig; G.moves = 0; G.hist = []; G.status = 'play'; G.hint = -1;
-  if (saved && saved.n === n && G.lv.cells[saved.bun] && G.lv.cells[saved.pig]) {
-    G.bun = saved.bun; G.pig = saved.pig; G.moves = saved.moves | 0; G.hist = saved.hist || [];
+  var nobody = G.lv.w * G.lv.h;
+  G.bun = G.lv.start; G.pig = G.lv.pig; G.pan = nobody; G.moves = 0; G.hist = []; G.status = 'play'; G.hint = -1;
+  var ok = function (c) { return c === nobody || !!G.lv.cells[c]; };
+  if (saved && saved.n === n && G.lv.cells[saved.bun] && ok(saved.pig) && ok(saved.pan)) {
+    G.bun = saved.bun; G.pig = saved.pig; G.pan = saved.pan; G.moves = saved.moves | 0; G.hist = saved.hist || [];
   }
   var r = rng32(n * 2654435761), N = G.lv.w * G.lv.h;
   shapes = [];
@@ -407,6 +499,7 @@ function loadLevel(n, saved) {
   place(); layout(); hud();
   say(n === 1 ? 'Toca una piedra vecina o desliza para saltar. Llega a la piedra negra.'
     : n === 3 ? 'Ahora el camino corto no alcanza. Deja al chanchito atascado detrás de un hueco.'
+    : n === 10 ? 'Nuevo: salta al megáfono y vendrá un panda a aplastar al chanchito. O escapa directo, tú eliges.'
     : '');
   draw();
 }
@@ -425,38 +518,70 @@ function hud() {
 
 // ---------- Turns ----------
 
+// The "nobody" marker for the pig and the panda, same as in the rules.
+function none() { return G.lv.w * G.lv.h; }
+
 function tryMove(to) {
   if (G.status !== 'play' || busy) return;
   if (to === G.pig || neighbors(G.lv, G.bun).indexOf(to) < 0) return;
-  G.hist.push([G.bun, G.pig]);
+  var r = turn(G.lv, G.bun, G.pig, G.pan, to);
+  G.hist.push([G.bun, G.pig, G.pan]);
   G.bun = to; G.moves++; G.hint = -1; busy = true;
   say(''); hud(); sfx('hop');
   hop(A.bun, colOf(to), rowOf(to), 190, function () {
     if (to === G.lv.exit) return win();
-    pigTurn();
+    callPanda(r);
   });
 }
 
-function pigTurn() {
-  var p2 = pigStep(G.lv, G.pig, G.bun);
-  if (p2 === G.pig) {
+function callPanda(r) {
+  if (!r.called) return pigMove(r);
+  var s = G.lv.start;
+  G.pan = s; G.callT = performance.now(); sfx('call');
+  say('¡El megáfono llamó al panda! Aguanta mientras llega.');
+  A.pan.show = true; A.pan.x = colOf(s); A.pan.y = G.lv.h + 0.9; A.pan.land = 0;
+  hop(A.pan, colOf(s), rowOf(s), 360, function () {
+    if (r.pigDied === 3) squash();
+    pigMove(r);
+  });
+}
+
+function pigMove(r) {
+  if (r.stuck) {
     A.pig.shake = performance.now(); kick(320); sfx('stuck');
-    say('El chanchito se quedó atascado.');
-    return endTurn();
+    if (G.pan === none()) say('El chanchito se quedó atascado.');
   }
-  G.pig = p2; sfx('pig');
-  hop(A.pig, colOf(p2), rowOf(p2), 190, function () {
-    if (p2 === G.bun) return lose('Cayó en tu piedra.');
+  if (r.pigTo < 0) return pandaMove(r);
+  sfx('pig');
+  hop(A.pig, colOf(r.pigTo), rowOf(r.pigTo), 190, function () {
+    if (r.lost) { G.pig = r.pigTo; return lose('Cayó en tu piedra.'); }
+    if (r.pigDied === 1) squash(); else G.pig = r.pigTo;
+    pandaMove(r);
+  });
+}
+
+function pandaMove(r) {
+  if (r.panTo < 0) return endTurn();
+  sfx('panda');
+  hop(A.pan, colOf(r.panTo), rowOf(r.panTo), 190, function () {
+    G.pan = r.panTo;
+    if (r.pigDied === 2) squash();
     endTurn();
   });
 }
 
+function squash() {
+  G.pig = none(); A.pig.die = performance.now(); kick(480); sfx('squash');
+  say('¡El panda aplastó al chanchito! Camino libre.');
+}
+
 function endTurn() {
-  var free = neighbors(G.lv, G.bun).filter(function (n) { return n !== G.pig; });
-  if (!free.length) {
-    G.pig = G.bun;
-    sfx('pig');
-    return hop(A.pig, colOf(G.bun), rowOf(G.bun), 190, function () { lose('Te acorraló sin salida.'); });
+  if (G.pig !== none() && G.pan === none()) {
+    var free = neighbors(G.lv, G.bun).filter(function (n) { return n !== G.pig; });
+    if (!free.length) {
+      G.pig = G.bun; sfx('pig');
+      return hop(A.pig, colOf(G.bun), rowOf(G.bun), 190, function () { lose('Te acorraló sin salida.'); });
+    }
   }
   busy = false; draw();
 }
@@ -486,14 +611,15 @@ function lose(why) {
 function undo() {
   if (busy || !G.hist.length) return;
   var h = G.hist.pop();
-  G.bun = h[0]; G.pig = h[1]; G.moves--; G.status = 'play'; G.hint = -1;
+  G.bun = h[0]; G.pig = h[1]; G.pan = h[2] === undefined ? none() : h[2];
+  G.moves--; G.status = 'play'; G.hint = -1;
   sheet.hidden = true; say('');
   place(); hud(); draw();
 }
 
 function hint() {
   if (G.status !== 'play' || busy) return;
-  var path = solve(G.lv, G.bun, G.pig);
+  var path = solve(G.lv, G.bun, G.pig, G.pan);
   if (!path) { say('Desde aquí ya no hay salida. Deshaz un salto o reinicia.'); return; }
   G.hint = path[0];
   say('Salta a la piedra marcada.');
@@ -525,6 +651,7 @@ function showHelp() {
    'Por cada salto tuyo, el chanchito da uno hacia ti.',
    'El chanchito primero intenta ir de lado. Si no puede, sube o baja. Si le toca un hueco, se queda atascado.',
    'Si cae en tu piedra, te atrapa.',
+   'Desde el nivel 10 hay un megáfono con orejas de panda. Si saltas a su piedra, entra un panda que persigue al chanchito y lo aplasta.',
    'La música se apaga y se prende con el botón de la nota.'].forEach(function (t) {
     var li = document.createElement('li'); li.textContent = t; ul.appendChild(li);
   });
@@ -662,6 +789,9 @@ function sfx(kind) {
   else if (kind === 'stuck') blip('sawtooth', 95, t, 0.16, 0.07, 80);
   else if (kind === 'win') [523, 659, 784, 1047, 1319].forEach(function (f, i) { blip('square', f, t + i * 0.08, 0.16, 0.07); });
   else if (kind === 'lose') [494, 392, 330, 196].forEach(function (f, i) { blip('square', f, t + i * 0.13, 0.2, 0.07); });
+  else if (kind === 'call') [784, 784, 988, 1175].forEach(function (f, i) { blip('sawtooth', f, t + i * 0.09, i === 3 ? 0.3 : 0.08, 0.06); });
+  else if (kind === 'panda') blip('triangle', 260, t, 0.1, 0.2, 340);
+  else if (kind === 'squash') { blip('square', 330, t, 0.28, 0.09, 45); hiss(t, 0.14, 0.14); }
 }
 
 function soundButton() { $('sound').setAttribute('aria-pressed', store.sound ? 'true' : 'false'); }
@@ -839,52 +969,160 @@ function drawPig(s, k) {
   } else {
     dot(ex - s * 0.1, ey, s * 0.032); dot(ex + s * 0.1, ey, s * 0.032);
   }
-  line(ex - s * 0.17, -s * 0.215, ex - s * 0.055, -s * 0.175);
-  line(ex + s * 0.17, -s * 0.215, ex + s * 0.055, -s * 0.175);
+  // Angry brows, or worried ones once the panda is around.
+  var b1 = k.scared ? -0.18 : -0.215, b2 = k.scared ? -0.225 : -0.175;
+  line(ex - s * 0.17, s * b1, ex - s * 0.055, s * b2);
+  line(ex + s * 0.17, s * b1, ex + s * 0.055, s * b2);
   ctx.fillStyle = '#000';
   ctx.beginPath(); ctx.ellipse(ex - s * 0.04, -s * 0.03, s * 0.019, s * 0.03, 0, 0, 6.2832); ctx.fill();
   ctx.beginPath(); ctx.ellipse(ex + s * 0.04, -s * 0.03, s * 0.019, s * 0.03, 0, 0, 6.2832); ctx.fill();
 }
 
+function drawPanda(s, k) {
+  var up = k.lift, lw = s * 0.034, d, ex = s * 0.015, ey = -s * 0.1;
+  // Black parts get a white edge so they still show over the black void.
+  ctx.fillStyle = '#000'; ctx.strokeStyle = '#fff'; ctx.lineWidth = s * 0.022;
+  oval(-s * 0.105 - up * s * 0.04, s * 0.3 + up * s * 0.035, s * 0.078, s * 0.052);
+  oval(s * 0.105 + up * s * 0.04, s * 0.3 + up * s * 0.035, s * 0.078, s * 0.052);
+  ctx.fillStyle = '#fff'; ctx.strokeStyle = '#000'; ctx.lineWidth = lw;
+  oval(0, s * 0.17, s * 0.205, s * 0.16);
+  ctx.fillStyle = '#000'; ctx.strokeStyle = '#fff'; ctx.lineWidth = s * 0.022;
+  for (d = -1; d <= 1; d += 2) {
+    oval(d * s * (0.175 + up * 0.05), s * 0.13 - up * s * 0.13, s * 0.046, s * 0.088, d * (0.3 + up * 1.3));
+    oval(d * s * 0.165, -s * 0.255 - k.flop * s * 0.12, s * 0.068, s * 0.068);
+  }
+  ctx.fillStyle = '#fff'; ctx.strokeStyle = '#000'; ctx.lineWidth = lw;
+  oval(0, -s * 0.09, s * 0.235, s * 0.195);
+
+  ctx.fillStyle = '#000';
+  for (d = -1; d <= 1; d += 2) {
+    ctx.beginPath(); ctx.ellipse(ex + d * s * 0.098, ey + s * 0.008, s * 0.056, s * 0.07, d * 0.5, 0, 6.2832); ctx.fill();
+  }
+  ctx.fillStyle = '#fff'; ctx.strokeStyle = '#fff'; ctx.lineWidth = s * 0.02;
+  for (d = -1; d <= 1; d += 2) {
+    if (k.blink) line(ex + d * s * 0.065, ey, ex + d * s * 0.115, ey);
+    else dot(ex + d * s * 0.09, ey - s * 0.005, s * 0.022);
+  }
+  ctx.fillStyle = '#000'; ctx.strokeStyle = '#000';
+  ctx.beginPath(); ctx.ellipse(ex, -s * 0.02, s * 0.03, s * 0.02, 0, 0, 6.2832); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(ex - s * 0.045, s * 0.02); ctx.quadraticCurveTo(ex, s * 0.065, ex + s * 0.045, s * 0.02); ctx.stroke();
+}
+
+// The megaphone with panda ears. It sits on its stone until the bunny lands there.
+function drawMega(now) {
+  var lv = G.lv, s = cell * 1.1, t = reduced ? 0.3 : now / 1000, i;
+  ctx.save();
+  ctx.translate(px(colOf(lv.mega)) - cell * 0.045, py(rowOf(lv.mega)) + cell * 0.02);
+  ctx.fillStyle = '#fff'; dot(cell * 0.045, -cell * 0.02, cell * 0.4);
+  ctx.rotate(-0.24 + (reduced ? 0 : Math.sin(t * 5) * 0.07));
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  // Ears, mouthpiece and handle sit behind the cone.
+  ctx.fillStyle = '#000';
+  dot(-s * 0.125, -s * 0.15, s * 0.078); dot(s * 0.03, -s * 0.215, s * 0.078);
+  ctx.fillRect(-s * 0.34, -s * 0.06, s * 0.09, s * 0.12);
+  ctx.fillRect(-s * 0.13, s * 0.06, s * 0.075, s * 0.2);
+  // Cone.
+  ctx.fillStyle = '#fff'; ctx.strokeStyle = '#000'; ctx.lineWidth = s * 0.036;
+  ctx.beginPath();
+  ctx.moveTo(-s * 0.27, -s * 0.055); ctx.lineTo(s * 0.15, -s * 0.2); ctx.lineTo(s * 0.15, s * 0.2); ctx.lineTo(-s * 0.27, s * 0.055);
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  // Flared bell with its dark opening.
+  ctx.beginPath(); ctx.ellipse(s * 0.165, 0, s * 0.07, s * 0.245, 0, 0, 6.2832); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#000';
+  ctx.beginPath(); ctx.ellipse(s * 0.172, 0, s * 0.034, s * 0.165, 0, 0, 6.2832); ctx.fill();
+  // Panda face on the side of the cone.
+  ctx.beginPath(); ctx.ellipse(-s * 0.125, -s * 0.012, s * 0.036, s * 0.05, 0.45, 0, 6.2832); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(-s * 0.01, -s * 0.03, s * 0.04, s * 0.056, -0.45, 0, 6.2832); ctx.fill();
+  dot(-s * 0.07, s * 0.055, s * 0.018);
+  ctx.fillStyle = '#fff';
+  dot(-s * 0.12, -s * 0.018, s * 0.014); dot(-s * 0.012, -s * 0.036, s * 0.015);
+  // Sound coming out.
+  ctx.lineWidth = s * 0.03;
+  for (i = 0; i < 2; i++) {
+    var ph = (t * 1.4 + i * 0.5) % 1;
+    ctx.globalAlpha = 1 - ph;
+    ctx.beginPath(); ctx.arc(s * 0.2, 0, s * (0.09 + 0.1 * ph), -0.8, 0.8); ctx.stroke();
+  }
+  ctx.restore();
+}
+
 // Squash and stretch from the feet: stretch in the air, squash and wobble on landing, breathe at rest.
-function render(a, fn, now, phase, scared) {
+// o.size scales the character, o.dx shifts it sideways, o.flat (0..1) presses it into the stone.
+function render(a, fn, now, phase, o) {
   var u = a.land ? (now - a.land) / 340 : 2;
   var flop = u < 1 && !reduced ? -0.4 * Math.sin(6.2832 * u) * Math.exp(-3.5 * u) : 0;
   var st = 0.15 * a.lift + flop + (reduced ? 0 : 0.014 * Math.sin(now / 420 + phase));
-  var size = cell * 1.12, foot = size * 0.34;
+  var size = cell * 1.12 * (o.size || 1), foot = size * 0.34, flat = o.flat || 0;
   ctx.save();
-  ctx.translate(px(a.x), py(a.y) - cell * 0.03 - a.lift * cell * 0.36 + foot);
-  ctx.scale(a.face * (1 - st * 0.55), 1 + st);
+  ctx.translate(px(a.x) + (o.dx || 0) * cell, py(a.y) - cell * 0.03 - a.lift * cell * 0.36 + foot);
+  ctx.scale(a.face * (1 - st * 0.55) * (1 + flat * 0.5), (1 + st) * (1 - flat * 0.88));
   ctx.translate(0, -foot);
   ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-  fn(size, { lift: a.lift, flop: flop, scared: scared, blink: !reduced && (now + phase * 900) % 3600 < 130 });
+  fn(size, { lift: a.lift, flop: flop, scared: o.scared, blink: !reduced && (now + phase * 900) % 3600 < 130 });
   ctx.restore();
 }
 
 function draw(now) {
   if (!G.lv || !vw) return;
   now = now || performance.now();
-  var lv = G.lv;
+  var lv = G.lv, N = lv.w * lv.h, i;
   ctx.drawImage(layer, 0, 0, vw, vh);
   ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+
+  if (lv.mega >= 0 && G.pan === N && G.pig !== N) drawMega(now);
+
+  // The megaphone's shout, rippling out from its stone.
+  var shout = G.callT ? (now - G.callT) / 700 : 2;
+  if (shout < 1 && lv.mega >= 0) {
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(2, cell * 0.04);
+    for (i = 0; i < 3; i++) {
+      var ph = shout - i * 0.18;
+      if (ph <= 0) continue;
+      ctx.globalAlpha = Math.max(0, 1 - ph);
+      ctx.beginPath(); ctx.arc(px(colOf(lv.mega)), py(rowOf(lv.mega)), cell * (0.45 + ph * 1.4), 0, 6.2832); ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  }
 
   if (G.hint >= 0 && G.status === 'play') {
     var pulse = reduced ? 0.5 : 0.5 + 0.5 * Math.sin(now / 180);
     ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(2, cell * 0.045);
     ctx.setLineDash([cell * 0.12, cell * 0.1]);
     ctx.beginPath();
-    ctx.arc(px(G.hint % lv.w), py((G.hint - G.hint % lv.w) / lv.w), cell * (0.5 + 0.035 * pulse), 0, 6.2832);
+    ctx.arc(px(colOf(G.hint)), py(rowOf(G.hint)), cell * (0.5 + 0.035 * pulse), 0, 6.2832);
     ctx.stroke(); ctx.setLineDash([]);
   }
 
+  var alive = G.pig !== N, panda = G.pan !== N && A.pan.show;
+  var dying = A.pig.die ? (now - A.pig.die) / 420 : 2;
   var shake = 0, since = now - A.pig.shake;
-  if (A.pig.shake && since < 320) shake = Math.sin(since / 320 * Math.PI * 6) * cell * 0.05 * (1 - since / 320);
-  var near = G.status === 'play' &&
+  if (A.pig.shake && since < 320) shake = Math.sin(since / 320 * Math.PI * 6) * 0.05 * (1 - since / 320);
+  var near = alive && G.status === 'play' &&
     Math.abs(colOf(G.bun) - colOf(G.pig)) + Math.abs(rowOf(G.bun) - rowOf(G.pig)) <= 1;
-  function pig() { ctx.save(); ctx.translate(shake, 0); render(A.pig, drawPig, now, 2.1, false); ctx.restore(); }
-  function bun() { if (A.bun.show) render(A.bun, drawBunny, now, 0, near); }
+  // Friends sharing a stone stand side by side.
+  var share = panda && A.bun.show && Math.abs(A.pan.x - A.bun.x) < 0.02 && Math.abs(A.pan.y - A.bun.y) < 0.02;
+
+  var cast = [];
+  if (alive || dying < 1) cast.push([A.pig, drawPig, 2.1, { dx: shake, scared: panda, flat: alive ? 0 : Math.min(1, dying * 2.2) }]);
+  if (panda) cast.push([A.pan, drawPanda, 4.3, { size: 1.14, dx: share ? -0.15 : 0 }]);
+  if (A.bun.show) cast.push([A.bun, drawBunny, 0, { scared: near, dx: share ? 0.2 : 0 }]);
   // Whoever stands lower on the screen is drawn last, so ears never cover a face.
-  if (A.bun.y < A.pig.y) { bun(); pig(); } else { pig(); bun(); }
+  cast.sort(function (p, q) { return p[0].y - q[0].y; });
+  for (i = 0; i < cast.length; i++) render(cast[i][0], cast[i][1], now, cast[i][2], cast[i][3]);
+
+  // Stars where the pig got flattened.
+  if (!alive && dying < 1) {
+    var cx = px(A.pig.x), cy = py(A.pig.y);
+    for (var pass = 0; pass < 2; pass++) {
+      ctx.strokeStyle = pass ? '#000' : '#fff'; ctx.lineWidth = cell * (pass ? 0.035 : 0.075);
+      ctx.globalAlpha = 1 - dying;
+      for (i = 0; i < 8; i++) {
+        var ang = i / 8 * 6.2832 + 0.3, r1 = cell * (0.2 + dying * 0.3), r2 = cell * (0.32 + dying * 0.42);
+        line(cx + Math.cos(ang) * r1, cy + Math.sin(ang) * r1, cx + Math.cos(ang) * r2, cy + Math.sin(ang) * r2);
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
 }
 
 // ---------- Input ----------
@@ -958,9 +1196,9 @@ function start(data) {
 var hot = window.claude && window.claude.hot;
 if (hot && hot.snapshot) {
   hot.snapshot(function () {
-    var won = G.status === 'won', h = G.hist.slice(), bun = G.bun, pig = G.pig, moves = G.moves;
-    if (G.status === 'lost' && h.length) { var last = h.pop(); bun = last[0]; pig = last[1]; moves--; }
-    return won ? { n: G.n + 1 } : { n: G.n, bun: bun, pig: pig, moves: moves, hist: h };
+    var won = G.status === 'won', h = G.hist.slice(), bun = G.bun, pig = G.pig, pan = G.pan, moves = G.moves;
+    if (G.status === 'lost' && h.length) { var last = h.pop(); bun = last[0]; pig = last[1]; pan = last[2]; moves--; }
+    return won ? { n: G.n + 1 } : { n: G.n, bun: bun, pig: pig, pan: pan, moves: moves, hist: h };
   });
 }
 if (hot && hot.ready) hot.ready(start); else start((hot && hot.data) || {});
