@@ -9,6 +9,11 @@
 <link rel="icon" type="image/svg+xml" href="favicon.svg"><!--wrap-->
 <link rel="icon" type="image/png" sizes="64x64" href="favicon.png"><!--wrap-->
 <link rel="apple-touch-icon" href="icon-180.png"><!--wrap-->
+<link rel="manifest" href="manifest.webmanifest"><!--wrap-->
+<meta name="mobile-web-app-capable" content="yes"><!--wrap-->
+<meta name="apple-mobile-web-app-capable" content="yes"><!--wrap-->
+<meta name="apple-mobile-web-app-title" content="Bunny Hop"><!--wrap-->
+<meta name="apple-mobile-web-app-status-bar-style" content="black"><!--wrap-->
 <meta property="og:type" content="website"><!--wrap-->
 <meta property="og:title" content="Bunny Hop"><!--wrap-->
 <meta property="og:description" content="Ayuda al conejito a escapar del chanchito, piedra por piedra."><!--wrap-->
@@ -1204,5 +1209,6 @@ if (hot && hot.snapshot) {
 if (hot && hot.ready) hot.ready(start); else start((hot && hot.data) || {});
 })();
 </script>
+<script>if ("serviceWorker" in navigator) addEventListener("load", function () { navigator.serviceWorker.register("sw.js").catch(function () {}); });</script><!--wrap-->
 </body><!--wrap-->
 </html><!--wrap-->
